@@ -1,0 +1,311 @@
+# School Management System Database Tables
+
+## 1. Users
+
+```sql
+CREATE TABLE users (
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(255) NOT NULL,
+  email VARCHAR(255) UNIQUE NOT NULL,
+  password_hash VARCHAR(255) NOT NULL,
+  role VARCHAR(50) NOT NULL CHECK (role IN ('admin', 'teacher', 'student', 'accountant', 'library')),
+  phone VARCHAR(50),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+## 2. Students
+
+```sql
+CREATE TABLE students (
+  id SERIAL PRIMARY KEY,
+  user_id INT UNIQUE NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  student_code VARCHAR(50) UNIQUE NOT NULL,
+  full_name VARCHAR(255) NOT NULL,
+  gender VARCHAR(20),
+  dob DATE,
+  class_id INT REFERENCES classes(id),
+  guardian_name VARCHAR(255),
+  guardian_phone VARCHAR(50),
+  status VARCHAR(50) DEFAULT 'Active',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+## 3. Staff
+
+```sql
+CREATE TABLE staff (
+  id SERIAL PRIMARY KEY,
+  user_id INT UNIQUE NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  staff_code VARCHAR(50) UNIQUE NOT NULL,
+  full_name VARCHAR(255) NOT NULL,
+  role_title VARCHAR(255),
+  department VARCHAR(255),
+  class_id INT REFERENCES classes(id),
+  status VARCHAR(50) DEFAULT 'Active',
+  phone VARCHAR(50),
+  salary DECIMAL(12,2) DEFAULT 0,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+## 4. Classes
+
+```sql
+CREATE TABLE classes (
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(100) NOT NULL UNIQUE,
+  teacher_id INT REFERENCES staff(id),
+  room VARCHAR(100),
+  student_count INT DEFAULT 0,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+## 5. Subjects
+
+```sql
+CREATE TABLE subjects (
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(255) NOT NULL UNIQUE,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+## 6. Terms
+
+```sql
+CREATE TABLE terms (
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(50) NOT NULL UNIQUE,
+  start_date DATE,
+  end_date DATE
+);
+```
+
+## 7. Grades
+
+```sql
+CREATE TABLE grades (
+  id SERIAL PRIMARY KEY,
+  student_id INT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+  subject_id INT NOT NULL REFERENCES subjects(id),
+  term_id INT NOT NULL REFERENCES terms(id),
+  score INT NOT NULL CHECK (score >= 0 AND score <= 100),
+  grade VARCHAR(10),
+  teacher_id INT REFERENCES staff(id),
+  status VARCHAR(30) DEFAULT 'published',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+## 8. Grade submissions (teacher pending -> admin approval)
+
+```sql
+CREATE TABLE grade_submissions (
+  id SERIAL PRIMARY KEY,
+  student_id INT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+  subject_id INT NOT NULL REFERENCES subjects(id),
+  term_id INT NOT NULL REFERENCES terms(id),
+  score INT NOT NULL CHECK (score >= 0 AND score <= 100),
+  grade VARCHAR(10),
+  teacher_id INT NOT NULL REFERENCES staff(id),
+  submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  approved_by INT REFERENCES users(id),
+  approved_at TIMESTAMP,
+  status VARCHAR(30) DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected'))
+);
+```
+
+## 9. Attendance
+
+```sql
+CREATE TABLE attendance (
+  id SERIAL PRIMARY KEY,
+  student_id INT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+  date DATE NOT NULL,
+  status VARCHAR(20) NOT NULL CHECK (status IN ('Present', 'Absent', 'Late')),
+  remarks VARCHAR(255),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(student_id, date)
+);
+```
+
+## 10. Fees
+
+```sql
+CREATE TABLE fees (
+  id SERIAL PRIMARY KEY,
+  student_id INT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+  class_id INT REFERENCES classes(id),
+  term_id INT NOT NULL REFERENCES terms(id),
+  fee_type VARCHAR(50) NOT NULL DEFAULT 'Tuition',
+  amount DECIMAL(12,2) NOT NULL,
+  paid_amount DECIMAL(12,2) DEFAULT 0,
+  status VARCHAR(30) DEFAULT 'Unpaid' CHECK (status IN ('Paid', 'Partial', 'Unpaid')),
+  due_date DATE,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+## 11. Fee structure bands
+
+Fee amounts are configured independently for Nursery, Kindergarten, Grade 1-6, and Grade 7-9. The boarding amount remains configured even when it is disabled for a band, so it can be enabled again without losing the amount.
+
+```sql
+CREATE TABLE fee_bands (
+  id SERIAL PRIMARY KEY,
+  code VARCHAR(30) UNIQUE NOT NULL CHECK (code IN ('nursery', 'kindergarten', 'grade_1_6', 'grade_7_9')),
+  name VARCHAR(100) NOT NULL,
+  boarding_enabled BOOLEAN NOT NULL DEFAULT TRUE
+);
+
+CREATE TABLE fee_structure_items (
+  id SERIAL PRIMARY KEY,
+  fee_band_id INT NOT NULL REFERENCES fee_bands(id) ON DELETE CASCADE,
+  term_id INT NOT NULL REFERENCES terms(id) ON DELETE CASCADE,
+  fee_type VARCHAR(50) NOT NULL CHECK (fee_type IN ('Tuition', 'Sports', 'Library', 'Lab', 'Exam', 'Uniform', 'Boarding')),
+  amount DECIMAL(12,2) NOT NULL CHECK (amount >= 0),
+  UNIQUE(fee_band_id, term_id, fee_type)
+);
+```
+
+## 12. Fee payments
+
+```sql
+CREATE TABLE fee_payments (
+  id SERIAL PRIMARY KEY,
+  fee_id INT NOT NULL REFERENCES fees(id) ON DELETE CASCADE,
+  amount DECIMAL(12,2) NOT NULL,
+  payment_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  payment_method VARCHAR(50),
+  reference_code VARCHAR(100)
+);
+```
+
+## 13. Library books
+
+```sql
+CREATE TABLE library_books (
+  id SERIAL PRIMARY KEY,
+  title VARCHAR(255) NOT NULL,
+  author VARCHAR(255),
+  isbn VARCHAR(100) UNIQUE,
+  copies INT NOT NULL DEFAULT 0,
+  available_copies INT NOT NULL DEFAULT 0,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  CHECK (available_copies >= 0 AND available_copies <= copies)
+);
+```
+
+## 14. Book borrow records
+
+```sql
+CREATE TABLE book_loans (
+  id SERIAL PRIMARY KEY,
+  book_id INT NOT NULL REFERENCES library_books(id) ON DELETE CASCADE,
+  student_id INT REFERENCES students(id),
+  staff_id INT REFERENCES staff(id),
+  issued_by INT NOT NULL REFERENCES users(id),
+  borrow_date DATE NOT NULL,
+  due_date DATE,
+  return_date DATE,
+  returned_by INT REFERENCES users(id),
+  status VARCHAR(30) DEFAULT 'borrowed' CHECK (status IN ('borrowed', 'returned', 'overdue'))
+);
+```
+
+## 15. Timetable
+
+```sql
+CREATE TABLE timetable (
+  id SERIAL PRIMARY KEY,
+  class_id INT NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
+  day VARCHAR(20) NOT NULL,
+  period_name VARCHAR(100) NOT NULL,
+  subject_id INT NOT NULL REFERENCES subjects(id),
+  teacher_id INT REFERENCES staff(id),
+  UNIQUE(class_id, day, period_name)
+);
+```
+
+## 16. Announcements
+
+```sql
+CREATE TABLE announcements (
+  id SERIAL PRIMARY KEY,
+  title VARCHAR(255) NOT NULL,
+  body TEXT NOT NULL,
+  type VARCHAR(50) DEFAULT 'Academic',
+  created_by INT REFERENCES users(id),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+## 17. Communication messages
+
+```sql
+CREATE TABLE communication_messages (
+  id SERIAL PRIMARY KEY,
+  sender_id INT NOT NULL REFERENCES users(id),
+  receiver_id INT REFERENCES users(id),
+  class_id INT REFERENCES classes(id),
+  message TEXT NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+## 18. Reports
+
+```sql
+CREATE TABLE reports (
+  id SERIAL PRIMARY KEY,
+  report_type VARCHAR(100) NOT NULL,
+  generated_by INT REFERENCES users(id),
+  generated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  details JSONB
+);
+```
+
+## 19. Settings
+
+```sql
+CREATE TABLE school_settings (
+  id SERIAL PRIMARY KEY,
+  setting_key VARCHAR(100) UNIQUE NOT NULL,
+  setting_value TEXT,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+---
+
+## Suggested relationships
+
+- A user can have one of these roles: admin, teacher, student, accountant, or library.
+- Accountant users manage fee records and payments; only admin and accountant roles can manage fee structures.
+- Library users manage the booklist, quantities, issues, and returns; admin users have view-only access to the library page.
+- Each student belongs to one class.
+- Each staff member may teach one class or support a department.
+- Grades are linked to students, subjects, and terms.
+- Grade submissions are the approval pipeline before grades become published.
+- Timetable entries belong to a class and reference a subject and teacher.
+- Fees track student charges by term, class, fee type, and payment records.
+- Fee structure items are configured by term and class fee band; boarding can be enabled or disabled per band.
+- Library book quantities must never be lower than the number of active loans.
+- Library borrow records link books to students or staff and record the user who issued or returned each book.
+
+---
+
+## Recommended next steps
+
+1. Choose a database: PostgreSQL or MySQL.
+2. Add foreign key indexes on student_id, class_id, subject_id, teacher_id.
+3. Add trigger or application logic to auto-calculate grade labels.
+4. Add a stored procedure or service layer for admin approval of pending grades.
+5. Add audit tables for tracking edits to critical records like fees, grades, and timetable.
+6. Seed fee bands for Nursery, Kindergarten, Grade 1-6, and Grade 7-9 for each term.
+7. Enforce role permissions in the API as well as in the frontend, especially grade approval, fee management, and library circulation.
